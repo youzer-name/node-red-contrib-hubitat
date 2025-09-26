@@ -38,7 +38,8 @@
       "request": "nodes/request.js",
       "switch-logic": "nodes/switch-logic.js",
       "capture": "nodes/capture.js",
-      "restore": "nodes/restore.js"
+      "restore": "nodes/restore.js",
+      "logic": "nodes/logic.js"
     }
   },
   "engines": {
