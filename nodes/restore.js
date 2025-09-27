@@ -44,6 +44,8 @@ module.exports = function HubitatRestoreModule(RED) {
           }
 
           let commands = [];
+          let error = false;
+          let errorMsg = '';
 
           // Switch-only devices
           if (state.switch !== undefined && state.level === undefined && state.colorMode === undefined) {
@@ -56,7 +58,12 @@ module.exports = function HubitatRestoreModule(RED) {
               commands.push({ deviceId, command: "off" });
             } else {
               commands.push({ deviceId, command: "on" });
-              commands.push({ deviceId, command: "setLevel", arguments: [state.level] });
+              if (state.level !== undefined) {
+                commands.push({ deviceId, command: "setLevel", arguments: [state.level] });
+              } else {
+                error = true;
+                errorMsg = 'Missing level for setLevel';
+              }
             }
           }
 
@@ -65,22 +72,33 @@ module.exports = function HubitatRestoreModule(RED) {
             if (state.switch === "off") {
               commands.push({ deviceId, command: "off" });
             } else if (state.switch === "on") {
-              if (state.colorMode === "CT" && state.colorTemperature !== undefined) {
-                commands.push({
-                  deviceId,
-                  command: "setColorTemperature",
-                  arguments: [state.colorTemperature, state.level]
-                });
-              } else if (state.colorMode === "RGB" && state.hue !== undefined && state.saturation !== undefined) {
-                commands.push({
-                  deviceId,
-                  command: "setColor",
-                  arguments: [{
-                    hue: state.hue,
-                    saturation: state.saturation,
-                    level: state.level
-                  }]
-                });
+              if (state.colorMode === "CT") {
+                if (state.colorTemperature !== undefined && state.colorTemperature !== null &&
+                    state.level !== undefined && state.level !== null) {
+                  commands.push({
+                    deviceId,
+                    command: "setColorTemperature",
+                    arguments: `${state.colorTemperature},${state.level}`
+                  });
+                } else {
+                  error = true;
+                  errorMsg = `Missing colorTemperature (${state.colorTemperature}) or level (${state.level}) for setColorTemperature`;
+                }
+              } else if (state.colorMode === "RGB") {
+                if (state.hue !== undefined && state.saturation !== undefined && state.level !== undefined) {
+                  commands.push({
+                    deviceId,
+                    command: "setColor",
+                    arguments: [{
+                      hue: state.hue,
+                      saturation: state.saturation,
+                      level: state.level
+                    }]
+                  });
+                } else {
+                  error = true;
+                  errorMsg = 'Missing hue, saturation, or level for setColor';
+                }
               }
             }
           }
@@ -88,73 +106,84 @@ module.exports = function HubitatRestoreModule(RED) {
           // cleanup after restore
           flowContext.set(key, undefined);
 
-          // update node status
           const now = new Date();
           const formattedTime = now.toLocaleString();
+
+          if (error) {
+            node.error(`Restore error for device ${deviceId}: ${errorMsg}. State: ${JSON.stringify(state)}`);
+            let errorOutput = {
+              ...msg,
+              error: true,
+              deviceId,
+              deviceState: state,
+              errorMsg,
+              restored: false
+            };
+            send(errorOutput);
+            node.status({ fill: "red", shape: "ring", text: `restore error ${deviceId}` });
+            if (done) done();
+            return;
+          }
+
           node.status({ fill: "green", shape: "dot", text: `restored ${state.name || deviceId} ${formattedTime}` });
 
+          // execute each command directly (command.js logic inlined)
+          for (const cmd of commands) {
+            let deviceId = String(cmd.deviceId);
+            let command = String(cmd.command);
+            let commandArgs = "";
+            if (cmd.command === "setColorTemperature" && typeof cmd.arguments === "string") {
+              commandArgs = cmd.arguments;
+            } else if (cmd.arguments && cmd.arguments.length) {
+              // For setColor, arguments is an array with one object [{hue, saturation, level}]
+              commandArgs = JSON.stringify(cmd.arguments);
+            }
 
-            // execute each command directly (command.js logic inlined)
-            for (const cmd of commands) {
-              let deviceId = String(cmd.deviceId);
-              let command = String(cmd.command);
-              let commandArgs =
-                cmd.arguments && cmd.arguments.length
-                  ? JSON.stringify(
-                      cmd.arguments.reduce((acc, cur) => {
-                        if (typeof cur === "object" && !Array.isArray(cur)) {
-                          return { ...acc, ...cur };
-                        }
-                        return acc;
-                      }, {})
-                    )
-                  : "";
+            let commandWithArgs = command;
+            if (commandArgs) {
+              commandWithArgs = `${command}/${encodeURIComponent(commandArgs)}`;
+            }
 
-              let commandWithArgs = command;
-              if (commandArgs) {
-                commandWithArgs = `${command}/${encodeURIComponent(commandArgs)}`;
-              }
+            const baseUrl = `${node.hubitat.baseUrl}/devices/${deviceId}/${commandWithArgs}`;
+            const url = `${baseUrl}?access_token=${node.hubitat.token}`;
+            const options = { method: "GET" };
 
-              const baseUrl = `${node.hubitat.baseUrl}/devices/${deviceId}/${commandWithArgs}`;
-              const url = `${baseUrl}?access_token=${node.hubitat.token}`;
-              const options = { method: "GET" };
-
-              try {
-                await node.hubitat.acquireLock();
-                const output = {
-                  ...msg,
-                  deviceId,
-                  command,
-                  requestArguments: commandArgs,
-                };
-                const response = await fetch(url, options);
-                output.responseStatus = response.status;
-                if (response.status >= 400) {
-                  node.status({ fill: "red", shape: "ring", text: "response error" });
-                  output.response = await response.text();
-                  const message = `${baseUrl}: ${output.response}`;
-                  send(output);
-                  doneWithId(node, done, message);
-                  return;
-                }
-                output.response = await response.json();
+            try {
+              await node.hubitat.acquireLock();
+              const output = {
+                ...msg,
+                deviceId,
+                command,
+                requestArguments: commandArgs,
+              };
+              const response = await fetch(url, options);
+              output.responseStatus = response.status;
+              if (response.status >= 400) {
+                node.status({ fill: "red", shape: "ring", text: "response error" });
+                output.response = await response.text();
+                const message = `${baseUrl}: ${output.response}`;
                 send(output);
-                if (done) done();
-              } catch (err) {
-                node.status({ fill: "red", shape: "ring", text: err.code });
-                if (done) done(err);
-              } finally {
-                if (node.hubitat.delayCommands) {
-                  setTimeout(() => {
-                    node.hubitat.releaseLock();
-                  }, node.hubitat.delayCommands);
-                } else {
+                doneWithId(node, done, message);
+                return;
+              }
+              output.response = await response.json();
+              send(output);
+              if (done) done();
+            } catch (err) {
+              node.status({ fill: "red", shape: "ring", text: err.code });
+              if (done) done(err);
+            } finally {
+              if (node.hubitat.delayCommands) {
+                setTimeout(() => {
                   node.hubitat.releaseLock();
-                }
+                }, node.hubitat.delayCommands);
+              } else {
+                node.hubitat.releaseLock();
               }
             }
-          })
-        );
+          }
+        })
+      );
      } catch (err) {
         node.error(`Error restoring devices: ${err.message}`, msg);
         if (done) done(err);
