@@ -96,12 +96,11 @@ module.exports = function HubitatLogicModule(RED) {
 
     function computeLogicState() {
       if (!node.deviceId || node.deviceId.length === 0) return false;
-      const desired = node.targetValue;
       const values = node.deviceId.map(id => getDeviceState(id));
       if (node.mode === 'all') {
-        return values.length > 0 && values.every(v => v === desired);
+        return values.length > 0 && values.every(v => matchesTargetValue(v));
       } else {
-        return values.some(v => v === desired);
+        return values.some(v => matchesTargetValue(v));
       }
     }
 
