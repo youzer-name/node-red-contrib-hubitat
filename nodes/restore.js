@@ -35,7 +35,19 @@ module.exports = function HubitatRestoreModule(RED) {
         const flowContext = node.context().flow;
 
         await Promise.all(toRestore.map(async (deviceId) => {
-          const key = `hubitat_device_state_${deviceId}`;
+          const getSafeHubId = (hubitat) => {
+            let hubId = hubitat.name && hubitat.name.trim();
+            if (!hubId) {
+              if (hubitat.host) {
+                hubId = hubitat.host;
+              } else {
+                hubId = hubitat.id;
+              }
+            }
+            return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
+          };
+          const hubId = getSafeHubId(node.hubitat);
+          const key = `hubitat_state_${hubId}_${deviceId}`;
           const state = flowContext.get(key);
 
           if (!state) {
@@ -89,11 +101,11 @@ module.exports = function HubitatRestoreModule(RED) {
                   commands.push({
                     deviceId,
                     command: "setColor",
-                    arguments: [{
+                    arguments: {
                       hue: state.hue,
                       saturation: state.saturation,
                       level: state.level
-                    }]
+                    }
                   });
                 } else {
                   error = true;
@@ -134,8 +146,10 @@ module.exports = function HubitatRestoreModule(RED) {
             let commandArgs = "";
             if (cmd.command === "setColorTemperature" && typeof cmd.arguments === "string") {
               commandArgs = cmd.arguments;
+            } else if (cmd.command === "setColor" && typeof cmd.arguments === "object") {
+              // For setColor, arguments is a plain object {hue, saturation, level}
+              commandArgs = JSON.stringify(cmd.arguments);
             } else if (cmd.arguments && cmd.arguments.length) {
-              // For setColor, arguments is an array with one object [{hue, saturation, level}]
               commandArgs = JSON.stringify(cmd.arguments);
             }
 
@@ -193,10 +207,22 @@ module.exports = function HubitatRestoreModule(RED) {
     node.on("close", function (removed, done) {
       try {
         if (removed) {
+          const getSafeHubId = (hubitat) => {
+            let hubId = hubitat.name && hubitat.name.trim();
+            if (!hubId) {
+              if (hubitat.host) {
+                hubId = hubitat.host;
+              } else {
+                hubId = hubitat.id;
+              }
+            }
+            return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
+          };
+          const hubId = getSafeHubId(node.hubitat);
           const flowContext = node.context().flow;
           const cleanup = configuredDeviceList();
           if (Array.isArray(cleanup)) {
-            cleanup.forEach(id => flowContext.set(`hubitat_device_state_${id}`, undefined));
+            cleanup.forEach(id => flowContext.set(`hubitat_state_${hubId}_${id}`, undefined));
           }
         }
         done();

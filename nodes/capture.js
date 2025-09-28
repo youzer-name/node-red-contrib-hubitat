@@ -80,10 +80,24 @@ module.exports = function HubitatCaptureModule(RED) {
           return;
         }
 
-        await refreshDeviceMap(true);
 
+
+        await refreshDeviceMap(true);
         const devicesMap = node.hubitat.devices || {};
         const flowContext = node.context().flow;
+
+        const getSafeHubId = (hubitat) => {
+          let hubId = hubitat.name && hubitat.name.trim();
+          if (!hubId) {
+            if (hubitat.host) {
+              hubId = hubitat.host;
+            } else {
+              hubId = hubitat.id;
+            }
+          }
+          return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
+        };
+        const hubId = getSafeHubId(node.hubitat);
         const summaries = [];
 
         await Promise.all(toCapture.map(async (rawId) => {
@@ -106,8 +120,9 @@ module.exports = function HubitatCaptureModule(RED) {
             }
           });
 
-          flowContext.set(`hubitat_device_state_${device.id}`, captured);
-          summaries.push({ id: device.id, name: captured.name });
+          const varName = `hubitat_state_${hubId}_${device.id}`;
+          flowContext.set(varName, captured);
+          summaries.push({ id: device.id, name: captured.name, varName });
         }));
 
         send({ payload: summaries });
@@ -122,12 +137,25 @@ module.exports = function HubitatCaptureModule(RED) {
       try {
         await refreshDeviceMap(true);
 
+
+        const getSafeHubId = (hubitat) => {
+          let hubId = hubitat.name && hubitat.name.trim();
+          if (!hubId) {
+            if (hubitat.host) {
+              hubId = hubitat.host;
+            } else {
+              hubId = hubitat.id;
+            }
+          }
+          return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
+        };
+        const hubId = getSafeHubId(node.hubitat);
         const flowContext = node.context().flow;
         const cleanup = configuredDeviceList();
         if (Array.isArray(cleanup)) {
           cleanup.forEach(raw => {
             const id = (raw && typeof raw === 'object' && (raw.id || raw.deviceId)) ? (raw.id || raw.deviceId) : raw;
-            const key = `hubitat_device_state_${id}`;
+            const key = `hubitat_state_${hubId}_${id}`;
             const existing = flowContext.get(key);
             if (existing && existing.owner === node.id) {
               flowContext.set(key, undefined);
