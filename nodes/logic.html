@@ -1,3 +1,15 @@
+<script type="text/x-red" data-help-name="hubitat logic">
+<p><b>Logic Node</b></p>
+<ul>
+  <li><b>Name</b>: Custom name for this node instance.</li>
+  <li><b>Hub</b>: Select the Hubitat hub to connect to.</li>
+  <li><b>Device Type</b>: Choose the type of device to evaluate (Switch, Motion, Lock, Contact, Presence).</li>
+  <li><b>Devices</b>: Choose one or more devices to evaluate.</li>
+  <li><b>Target Value</b>: The value to compare against device states (e.g., On/Off, Active/Inactive).</li>
+  <li><b>Mode</b>: 'All' requires all devices to match the target value; 'Any' requires at least one device to match.</li>
+  <li><b>Send events</b>: If checked, the node will send events when the logic condition is met.</li>
+</ul>
+</script>
 <script type="text/javascript">
 (function () {
   let currentRequestId = 0;

@@ -1,9 +1,39 @@
 module.exports = function HubitatCaptureModule(RED) {
   function HubitatCaptureNode(config) {
-    RED.nodes.createNode(this, config);
 
+    RED.nodes.createNode(this, config);
     const node = this;
     node.hubitat = RED.nodes.getNode(config.server);
+    node.clearOnEditRestart = config.clearOnEditRestart;
+
+    // Cleanup immediately if clearOnEditRestart is set in the new config
+    (async () => {
+      if (node.clearOnEditRestart) {
+        await refreshDeviceMap(true);
+        const getSafeHubId = (hubitat) => {
+          let hubId = hubitat.name && hubitat.name.trim();
+          if (!hubId) {
+            if (hubitat.host) {
+              hubId = hubitat.host;
+            } else {
+              hubId = hubitat.id;
+            }
+          }
+          return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
+        };
+        const hubId = getSafeHubId(node.hubitat);
+        const flowContext = node.context().flow;
+        const keys = await flowContext.keys();
+        for (const key of keys) {
+          if (key.startsWith(`hubitat_state_${hubId}_`)) {
+            const existing = flowContext.get(key);
+            if (existing && existing.owner === node.id) {
+              flowContext.set(key, undefined);
+            }
+          }
+        }
+      }
+    })();
 
 
     const count = Array.isArray(config.deviceId) ? config.deviceId.length : 0;
@@ -135,34 +165,37 @@ module.exports = function HubitatCaptureModule(RED) {
 
     node.on("close", async function (removed, done) {
       try {
-        await refreshDeviceMap(true);
-
-
-        const getSafeHubId = (hubitat) => {
-          let hubId = hubitat.name && hubitat.name.trim();
-          if (!hubId) {
-            if (hubitat.host) {
-              hubId = hubitat.host;
-            } else {
-              hubId = hubitat.id;
+        // Use the NEW config value for clearOnEditRestart if available
+        const newConfig = removed && typeof removed === 'object' ? removed : null;
+        const shouldCleanup = newConfig && typeof newConfig.clearOnEditRestart !== 'undefined'
+          ? newConfig.clearOnEditRestart
+          : node.clearOnEditRestart;
+        if (shouldCleanup) {
+          await refreshDeviceMap(true);
+          const getSafeHubId = (hubitat) => {
+            let hubId = hubitat.name && hubitat.name.trim();
+            if (!hubId) {
+              if (hubitat.host) {
+                hubId = hubitat.host;
+              } else {
+                hubId = hubitat.id;
+              }
+            }
+            return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
+          };
+          const hubId = getSafeHubId(node.hubitat);
+          const flowContext = node.context().flow;
+          // Remove all context variables owned by this node
+          const keys = await flowContext.keys();
+          for (const key of keys) {
+            if (key.startsWith(`hubitat_state_${hubId}_`)) {
+              const existing = flowContext.get(key);
+              if (existing && existing.owner === node.id) {
+                flowContext.set(key, undefined);
+              }
             }
           }
-          return String(hubId).replace(/[^a-zA-Z0-9]/g, '_');
-        };
-        const hubId = getSafeHubId(node.hubitat);
-        const flowContext = node.context().flow;
-        const cleanup = configuredDeviceList();
-        if (Array.isArray(cleanup)) {
-          cleanup.forEach(raw => {
-            const id = (raw && typeof raw === 'object' && (raw.id || raw.deviceId)) ? (raw.id || raw.deviceId) : raw;
-            const key = `hubitat_state_${hubId}_${id}`;
-            const existing = flowContext.get(key);
-            if (existing && existing.owner === node.id) {
-              flowContext.set(key, undefined);
-            }
-          });
         }
-
         done();
       } catch (err) {
         node.error(`Error during close cleanup: ${err?.message || err}`);

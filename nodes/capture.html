@@ -1,3 +1,14 @@
+</script>
+
+<script type="text/x-red" data-help-name="hubitat capture">
+<p><b>Capture Node</b></p>
+<ul>
+  <li><b>Name</b>: Custom name for this node instance.</li>
+  <li><b>Hub</b>: Select the Hubitat hub to connect to.</li>
+  <li><b>Devices</b>: Choose one or more devices whose state will be captured and stored in flow context.</li>
+  <li><b>Clear data on edit/restart</b>: If checked, all stored states owned by this node will be cleared when the node is edited, redeployed, or Node-RED restarts.</li>
+</ul>
+</script>
 <script type="text/javascript">
 (function () {
   let currentRequestId = 0;
@@ -59,7 +70,8 @@
     defaults: {
       name: { value: '' },
       server: { type: 'hubitat config', required: true },
-      deviceId: { value: [] }
+      deviceId: { value: [] },
+      clearOnEditRestart: { value: false }
     },
     inputs: 1,
     outputs: 1,
@@ -104,6 +116,7 @@
     oneditsave() {
       const selected = $('#node-input-deviceId').val() || [];
       this.deviceId = Array.isArray(selected) ? selected : [selected];
+      this.clearOnEditRestart = $('#node-input-clearOnEditRestart').prop('checked');
 
       if (this.deviceId.length > 0) {
         updateNameWithCount(this, { force: true });
@@ -142,5 +155,12 @@
   <div class="form-row">
     <label for="node-input-deviceId"><i class="fa fa-toggle-on"></i> Devices</label>
     <select id="node-input-deviceId" multiple size="8" style="width:100%;"></select>
+  </div>
+  <div class="form-row">
+    <label>&nbsp;</label>
+    <label style="white-space:nowrap; vertical-align:middle;">
+      <input type="checkbox" id="node-input-clearOnEditRestart" style="vertical-align:middle; margin-top:-2px;">
+      <span style="vertical-align:middle; margin-left:6px;">Clear data on edit/restart</span>
+    </label>
   </div>
 </script>
